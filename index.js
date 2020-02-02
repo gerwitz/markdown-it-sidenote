@@ -16,16 +16,18 @@ function render_footnote_anchor_name(tokens, idx, options, env/*, slf*/) {
 function render_sidenote_ref(tokens, idx, options, env, slf) {
   var id      = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
 
-  return '<span class="sidenote-number" data-sidenote-id="'+id+'"></span>';
+  return '<input type="checkbox" class="sidenote-trigger" id="fntoggle'+id+'" style="display:none;"><label for="fntoggle'+id+'" class="sidenote-number" rel="footnote" data-sidenote-id="'+id+'" id="fnref:'+id+'">' +
+    '</span>' +
+    '</label>';
 }
 
 function render_sidenote_open(tokens, idx, options, env, slf) {
   var id      = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
-  return '<span class="sidenote" data-sidenote-id="'+id+'">';
+  return '<label for="fntoggle'+id+'" class="sidenote" data-sidenote-id="'+id+'" id="fn:'+id+'">';
 }
 
 function render_sidenote_close(tokens, idx, options, env, slf) {
-  return '</span>';
+  return '</label>';
 }
 
 
