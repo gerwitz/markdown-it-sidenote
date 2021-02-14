@@ -1,6 +1,9 @@
+// Process footnotes
+//
 'use strict';
 
-// these turn tokens into HTML, and are meant to be overriden
+////////////////////////////////////////////////////////////////////////////////
+// Renderer partials
 
 function render_footnote_anchor_name(tokens, idx, options, env/*, slf*/) {
   var n = Number(tokens[idx].meta.id + 1).toString();
@@ -13,41 +16,81 @@ function render_footnote_anchor_name(tokens, idx, options, env/*, slf*/) {
   return prefix + n;
 }
 
-function render_sidenote_ref(tokens, idx, options, env, slf) {
+function render_footnote_caption(tokens, idx/*, options, env, slf*/) {
+  var n = Number(tokens[idx].meta.id + 1).toString();
+
+  if (tokens[idx].meta.subId > 0) {
+    n += ':' + tokens[idx].meta.subId;
+  }
+
+  return '[' + n + ']';
+}
+
+function render_footnote_ref(tokens, idx, options, env, slf) {
   var id      = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
+  var caption = slf.rules.footnote_caption(tokens, idx, options, env, slf);
+  var refid   = id;
 
-  return '<label for="fntoggle'+id+'" class="sidenote-number" role="doc-noteref" id="fnref:'+id+'" aria-describedby="fn:'+id+'">' +
-    '</label>' +
-    '<input type="checkbox" class="sidenote-trigger" id="fntoggle'+id+'" style="display:none;">';
+  if (tokens[idx].meta.subId > 0) {
+    refid += ':' + tokens[idx].meta.subId;
+  }
+
+  return '<sup class="footnote-ref"><a href="#fn' + id + '" id="fnref' + refid + '">' + caption + '</a></sup>';
 }
 
-function render_sidenote_open(tokens, idx, options, env, slf) {
-  var id      = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
-  return '<label for="fntoggle'+id+'" role="doc-footnote">' +
-    '<span class="sidenote" id="fn:'+id+'">';
+function render_footnote_block_open(tokens, idx, options) {
+  return (options.xhtmlOut ? '<hr class="footnotes-sep" />\n' : '<hr class="footnotes-sep">\n') +
+         '<section class="footnotes">\n' +
+         '<ol class="footnotes-list">\n';
 }
 
-function render_sidenote_close(tokens, idx, options, env, slf) {
-  return '</span>' +
-    '</label>';
+function render_footnote_block_close() {
+  return '</ol>\n</section>\n';
+}
+
+function render_footnote_open(tokens, idx, options, env, slf) {
+  var id = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
+
+  if (tokens[idx].meta.subId > 0) {
+    id += ':' + tokens[idx].meta.subId;
+  }
+
+  return '<li id="fn' + id + '" class="footnote-item">';
+}
+
+function render_footnote_close() {
+  return '</li>\n';
+}
+
+function render_footnote_anchor(tokens, idx, options, env, slf) {
+  var id = slf.rules.footnote_anchor_name(tokens, idx, options, env, slf);
+
+  if (tokens[idx].meta.subId > 0) {
+    id += ':' + tokens[idx].meta.subId;
+  }
+
+  /* ↩ with escape code to prevent display as Apple Emoji on iOS */
+  return ' <a href="#fnref' + id + '" class="footnote-backref">\u21a9\uFE0E</a>';
 }
 
 
-// functions within this module turn Markdown into tokens
-module.exports = function sidenote_plugin(md) {
+module.exports = function footnote_plugin(md) {
   var parseLinkLabel = md.helpers.parseLinkLabel,
       isSpace = md.utils.isSpace;
 
-  md.renderer.rules.sidenote_ref          = render_sidenote_ref;
-  md.renderer.rules.sidenote_open         = render_sidenote_open;
-  md.renderer.rules.sidenote_close        = render_sidenote_close;
+  md.renderer.rules.footnote_ref          = render_footnote_ref;
+  md.renderer.rules.footnote_block_open   = render_footnote_block_open;
+  md.renderer.rules.footnote_block_close  = render_footnote_block_close;
+  md.renderer.rules.footnote_open         = render_footnote_open;
+  md.renderer.rules.footnote_close        = render_footnote_close;
+  md.renderer.rules.footnote_anchor       = render_footnote_anchor;
 
   // helpers (only used in other rules, no tokens are attached to those)
-  // md.renderer.rules.footnote_caption      = render_footnote_caption;
+  md.renderer.rules.footnote_caption      = render_footnote_caption;
   md.renderer.rules.footnote_anchor_name  = render_footnote_anchor_name;
 
-  // Process footnote block definition "[^label]: content"
-  function sidenote_def(state, startLine, endLine, silent) {
+  // Process footnote block definition
+  function footnote_def(state, startLine, endLine, silent) {
     var oldBMark, oldTShift, oldSCount, oldParentType, pos, label, token,
         initial, offset, ch, posAfterColon,
         start = state.bMarks[startLine] + state.tShift[startLine],
@@ -56,11 +99,9 @@ module.exports = function sidenote_plugin(md) {
     // line should be at least 5 chars - "[^x]:"
     if (start + 4 > max) { return false; }
 
-    // Match [^
     if (state.src.charCodeAt(start) !== 0x5B/* [ */) { return false; }
     if (state.src.charCodeAt(start + 1) !== 0x5E/* ^ */) { return false; }
 
-    // advance cursor to end of the label
     for (pos = start + 2; pos < max; pos++) {
       if (state.src.charCodeAt(pos) === 0x20) { return false; }
       if (state.src.charCodeAt(pos) === 0x5D /* ] */) {
@@ -68,26 +109,17 @@ module.exports = function sidenote_plugin(md) {
       }
     }
 
-    // empty?
     if (pos === start + 2) { return false; } // no empty footnote labels
     if (pos + 1 >= max || state.src.charCodeAt(++pos) !== 0x3A /* : */) { return false; }
-
     if (silent) { return true; }
     pos++;
 
-    // create a library
     if (!state.env.footnotes) { state.env.footnotes = {}; }
-    // ...with a list of references
     if (!state.env.footnotes.refs) { state.env.footnotes.refs = {}; }
-    // ...and content
-    if (!state.env.footnotes.contents) { state.env.footnotes.contents = {}; }
-    // grab the label
     label = state.src.slice(start + 2, pos - 2);
-    // use ':{label}' as a key
     state.env.footnotes.refs[':' + label] = -1;
 
-    // add reference tokens to state
-    token       = new state.Token('sidenote_def_open', '', 1);
+    token       = new state.Token('footnote_reference_open', '', 1);
     token.meta  = { label: label };
     token.level = state.level++;
     state.tokens.push(token);
@@ -100,7 +132,6 @@ module.exports = function sidenote_plugin(md) {
     posAfterColon = pos;
     initial = offset = state.sCount[startLine] + pos - (state.bMarks[startLine] + state.tShift[startLine]);
 
-    // consume space between label and content
     while (pos < max) {
       ch = state.src.charCodeAt(pos);
 
@@ -122,20 +153,13 @@ module.exports = function sidenote_plugin(md) {
 
     state.bMarks[startLine] = posAfterColon;
     state.blkIndent += 4;
-    state.parentType = 'sidenote';
+    state.parentType = 'footnote';
 
     if (state.sCount[startLine] < state.blkIndent) {
       state.sCount[startLine] += state.blkIndent;
     }
 
-    // TODO: consume these lines to remove them from tokens
-    // not tokenizing leads to a loop, probably because this is how we advance the cursor
-
     state.md.block.tokenize(state, startLine, endLine, true);
-
-    // grab the raw content and store it for sidenote_ref
-    var content = state.getLines(startLine, state.line, state.blkIndent, false);
-    state.env.footnotes.contents[':' + label] = content;
 
     state.parentType = oldParentType;
     state.blkIndent -= 4;
@@ -143,16 +167,15 @@ module.exports = function sidenote_plugin(md) {
     state.sCount[startLine] = oldSCount;
     state.bMarks[startLine] = oldBMark;
 
-    token       = new state.Token('sidenote_def_close', '', -1);
+    token       = new state.Token('footnote_reference_close', '', -1);
     token.level = --state.level;
     state.tokens.push(token);
 
     return true;
   }
 
-  ////////////// TODO
   // Process inline footnotes (^[...])
-  function sidenote_inline(state, silent) {
+  function footnote_inline(state, silent) {
     var labelStart,
         labelEnd,
         footnoteId,
@@ -189,7 +212,10 @@ module.exports = function sidenote_plugin(md) {
       token      = state.push('footnote_ref', '', 0);
       token.meta = { id: footnoteId };
 
-      state.env.footnotes.list[footnoteId] = { tokens: tokens };
+      state.env.footnotes.list[footnoteId] = {
+        content: state.src.slice(labelStart, labelEnd),
+        tokens: tokens
+      };
     }
 
     state.pos = labelEnd + 1;
@@ -197,12 +223,11 @@ module.exports = function sidenote_plugin(md) {
     return true;
   }
 
-  // Process references ([^...])
-  function sidenote_ref(state, silent) {
+  // Process footnote references ([^...])
+  function footnote_ref(state, silent) {
     var label,
         pos,
         footnoteId,
-        footnoteTokens,
         footnoteSubId,
         token,
         max = state.posMax,
@@ -223,7 +248,7 @@ module.exports = function sidenote_plugin(md) {
       }
     }
 
-    if (pos === start + 2) { return false; } // no empty labels
+    if (pos === start + 2) { return false; } // no empty footnote labels
     if (pos >= max) { return false; }
     pos++;
 
@@ -244,28 +269,8 @@ module.exports = function sidenote_plugin(md) {
       footnoteSubId = state.env.footnotes.list[footnoteId].count;
       state.env.footnotes.list[footnoteId].count++;
 
-      token      = state.push('sidenote_ref', '', 0);
-      token.meta = { id: footnoteId, subId: footnoteSubId, label: label, footnoteTokens: footnoteTokens };
-
-      token      = state.push('sidenote_open', '', 0);
-      token.meta = { id: footnoteId, subId: footnoteSubId, label: label, footnoteTokens: footnoteTokens };
-
-      // parse contents from the library and push into token stream
-      var content = state.env.footnotes.contents[':' + label]
-      if (content) {
-        state.md.inline.parse(
-          content,
-          state.md,
-          state.env,
-          state.tokens
-        );
-      } else {
-        console.log('No content for sidenote [^'+label+']');
-      }
-
-      // state.push(state.env.footnotes.tokens[':' + label]);
-
-      token      = state.push('sidenote_close', '', 0);
+      token      = state.push('footnote_ref', '', 0);
+      token.meta = { id: footnoteId, subId: footnoteSubId, label: label };
     }
 
     state.pos = pos;
@@ -273,28 +278,25 @@ module.exports = function sidenote_plugin(md) {
     return true;
   }
 
-  // Remove reference definition tokens
-  function sidenote_def_clean(state) {
-    var tokens, current, currentLabel,
+  // Glue footnote tokens to end of token stream
+  function footnote_tail(state) {
+    var i, l, j, t, lastParagraph, list, token, tokens, current, currentLabel,
         insideRef = false,
         refTokens = {};
 
     if (!state.env.footnotes) { return; }
 
     state.tokens = state.tokens.filter(function (tok) {
-      if (tok.type === 'sidenote_def_open') {
+      if (tok.type === 'footnote_reference_open') {
         insideRef = true;
         current = [];
         currentLabel = tok.meta.label;
         return false;
       }
-      if (tok.type === 'sidenote_def_close') {
+      if (tok.type === 'footnote_reference_close') {
         insideRef = false;
-
-        //// this seems like a good time to store tokens, doesn't it?
-        // if (!state.env.footnotes.tokens) { state.env.footnotes.tokens = {}; }
-        // state.env.footnotes.tokens[':' + currentLabel] = current;
-
+        // prepend ':' to avoid conflict with Object.prototype members
+        refTokens[':' + currentLabel] = current;
         return false;
       }
       if (insideRef) { current.push(tok); }
@@ -303,10 +305,63 @@ module.exports = function sidenote_plugin(md) {
 
     if (!state.env.footnotes.list) { return; }
     list = state.env.footnotes.list;
+
+    token = new state.Token('footnote_block_open', '', 1);
+    state.tokens.push(token);
+
+    for (i = 0, l = list.length; i < l; i++) {
+      token      = new state.Token('footnote_open', '', 1);
+      token.meta = { id: i, label: list[i].label };
+      state.tokens.push(token);
+
+      if (list[i].tokens) {
+        tokens = [];
+
+        token          = new state.Token('paragraph_open', 'p', 1);
+        token.block    = true;
+        tokens.push(token);
+
+        token          = new state.Token('inline', '', 0);
+        token.children = list[i].tokens;
+        token.content  = list[i].content;
+        tokens.push(token);
+
+        token          = new state.Token('paragraph_close', 'p', -1);
+        token.block    = true;
+        tokens.push(token);
+
+      } else if (list[i].label) {
+        tokens = refTokens[':' + list[i].label];
+      }
+
+      state.tokens = state.tokens.concat(tokens);
+      if (state.tokens[state.tokens.length - 1].type === 'paragraph_close') {
+        lastParagraph = state.tokens.pop();
+      } else {
+        lastParagraph = null;
+      }
+
+      t = list[i].count > 0 ? list[i].count : 1;
+      for (j = 0; j < t; j++) {
+        token      = new state.Token('footnote_anchor', '', 0);
+        token.meta = { id: i, subId: j, label: list[i].label };
+        state.tokens.push(token);
+      }
+
+      if (lastParagraph) {
+        state.tokens.push(lastParagraph);
+      }
+
+      token = new state.Token('footnote_close', '', -1);
+      state.tokens.push(token);
+    }
+
+    token = new state.Token('footnote_block_close', '', -1);
+    state.tokens.push(token);
   }
 
-  md.block.ruler.before('reference', 'sidenote_def', sidenote_def, { alt: [ 'paragraph', 'reference' ] });
-  md.core.ruler.before('inline', 'sidenote_def_clean', sidenote_def_clean);
-  md.inline.ruler.after('image', 'sidenote_inline', sidenote_inline);
-  md.inline.ruler.after('sidenote_inline', 'sidenote_ref', sidenote_ref);
+  md.block.ruler.before('reference', 'footnote_def', footnote_def, { alt: [ 'paragraph', 'reference' ] });
+  md.inline.ruler.after('image', 'footnote_inline', footnote_inline);
+  md.inline.ruler.after('footnote_inline', 'footnote_ref', footnote_ref);
+  md.core.ruler.after('inline', 'footnote_tail', footnote_tail);
 };
