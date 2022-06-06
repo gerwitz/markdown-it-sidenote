@@ -5,6 +5,8 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Renderer partials
 
+// SN: these turn tokens into HTML, and are meant to be overriden
+
 function render_footnote_anchor_name(tokens, idx, options, env/*, slf*/) {
   var n = Number(tokens[idx].meta.id + 1).toString();
   var prefix = '';
@@ -73,7 +75,7 @@ function render_footnote_anchor(tokens, idx, options, env, slf) {
   return ' <a href="#fnref' + id + '" class="footnote-backref">\u21a9\uFE0E</a>';
 }
 
-
+// SN: this module parses into tokens
 module.exports = function footnote_plugin(md) {
   var parseLinkLabel = md.helpers.parseLinkLabel,
       isSpace = md.utils.isSpace;
@@ -114,16 +116,20 @@ module.exports = function footnote_plugin(md) {
     if (silent) { return true; }
     pos++;
 
+    // SN: initiate catalog
     if (!state.env.footnotes) { state.env.footnotes = {}; }
     if (!state.env.footnotes.refs) { state.env.footnotes.refs = {}; }
+    // SN: use the label as a key
     label = state.src.slice(start + 2, pos - 2);
     state.env.footnotes.refs[':' + label] = -1;
 
+    // SN: add a reference_open token
     token       = new state.Token('footnote_reference_open', '', 1);
     token.meta  = { label: label };
     token.level = state.level++;
     state.tokens.push(token);
 
+    // SN: stash cursor state
     oldBMark = state.bMarks[startLine];
     oldTShift = state.tShift[startLine];
     oldSCount = state.sCount[startLine];
@@ -132,6 +138,7 @@ module.exports = function footnote_plugin(md) {
     posAfterColon = pos;
     initial = offset = state.sCount[startLine] + pos - (state.bMarks[startLine] + state.tShift[startLine]);
 
+    // SN: consume whitespace between label and content
     while (pos < max) {
       ch = state.src.charCodeAt(pos);
 
@@ -144,7 +151,6 @@ module.exports = function footnote_plugin(md) {
       } else {
         break;
       }
-
       pos++;
     }
 
@@ -159,14 +165,17 @@ module.exports = function footnote_plugin(md) {
       state.sCount[startLine] += state.blkIndent;
     }
 
+    // parse the content
     state.md.block.tokenize(state, startLine, endLine, true);
 
+    // SN: restore stashed cursor state
     state.parentType = oldParentType;
     state.blkIndent -= 4;
     state.tShift[startLine] = oldTShift;
     state.sCount[startLine] = oldSCount;
     state.bMarks[startLine] = oldBMark;
 
+    // SN: add a reference_close token
     token       = new state.Token('footnote_reference_close', '', -1);
     token.level = --state.level;
     state.tokens.push(token);
@@ -198,6 +207,7 @@ module.exports = function footnote_plugin(md) {
     // so all that's left to do is to call tokenizer.
     //
     if (!silent) {
+    // SN: initiate catalog
       if (!state.env.footnotes) { state.env.footnotes = {}; }
       if (!state.env.footnotes.list) { state.env.footnotes.list = []; }
       footnoteId = state.env.footnotes.list.length;
@@ -209,9 +219,11 @@ module.exports = function footnote_plugin(md) {
         tokens = []
       );
 
+      // SN: add ref token
       token      = state.push('footnote_ref', '', 0);
       token.meta = { id: footnoteId };
 
+      // SN: add content to env
       state.env.footnotes.list[footnoteId] = {
         content: state.src.slice(labelStart, labelEnd),
         tokens: tokens
